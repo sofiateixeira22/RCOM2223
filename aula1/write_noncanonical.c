@@ -68,7 +68,7 @@ int main(int argc, char *argv[])
     // Set input mode (non-canonical, no echo,...)
     newtio.c_lflag = 0;
     newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-    newtio.c_cc[VMIN] = 5;  // Blocking read until 5 chars received
+    newtio.c_cc[VMIN] = 1;  // Blocking read until 5 chars received
 
     // VTIME e VMIN should be changed in order to protect with a
     // timeout the reception of the following character(s)
@@ -92,21 +92,40 @@ int main(int argc, char *argv[])
     // Create string to send
     unsigned char buf[BUF_SIZE] = {0};
 
+    if(1!=scanf("%s",buf))
+        printf("ERROR reading.\n");
+    
+    //printf("%s\n",buf);
+    int message_size=255;
     for (int i = 0; i < BUF_SIZE; i++)
     {
-        buf[i] = 'a' + i % 26;
+        if(buf[i]=='\0'){
+            message_size=i+1;
+            break;
+        }
     }
 
     // In non-canonical mode, '\n' does not end the writing.
     // Test this condition by placing a '\n' in the middle of the buffer.
     // The whole buffer must be sent even with the '\n'.
-    buf[5] = '\n';
+    //buf[5] = '\n';
 
-    int bytes = write(fd, buf, BUF_SIZE);
+    int bytes = write(fd, buf, message_size);
     printf("%d bytes written\n", bytes);
 
     // Wait until all bytes have been written to the serial port
-    sleep(1);
+    //sleep(1);
+    memset(buf,0,BUF_SIZE);
+    tcflush(fd,TCIOFLUSH);
+    int bytesRead=0;
+    while(1){
+        int i=read(fd,buf+bytesRead,BUF_SIZE);
+        bytesRead+=i;
+        printf("%x:%i\n", buf[bytesRead-1], i);
+        if(buf[bytesRead-1]=='\0')
+            break;
+    }
+    printf("[%s:%i]\n",buf,bytesRead);
 
     // Restore the old port settings
     if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
