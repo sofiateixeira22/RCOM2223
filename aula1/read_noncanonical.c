@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
     // Set input mode (non-canonical, no echo,...)
     newtio.c_lflag = 0;
     newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-    newtio.c_cc[VMIN] = 5;  // Blocking read until 5 chars received
+    newtio.c_cc[VMIN] = 1;  // Blocking read until 5 chars received
 
     // VTIME e VMIN should be changed in order to protect with a
     // timeout the reception of the following character(s)
@@ -90,17 +90,23 @@ int main(int argc, char *argv[])
 
     // Loop for input
     unsigned char buf[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
+    int i = 0;
 
     while (STOP == FALSE)
     {
-        // Returns after 5 chars have been input
-        int bytes = read(fd, buf, BUF_SIZE);
-        buf[bytes] = '\0'; // Set end of string to '\0', so we can printf
+        // Returns after vmin chars have been input
+        int bytes = read(fd, buf+i, BUF_SIZE);
+        i+=bytes;
 
-        printf(":%s:%d\n", buf, bytes);
-        if (buf[0] == 'z')
+        
+        if (buf[i-1] == '\0')
             STOP = TRUE;
     }
+    printf(":%s:%d\n", buf, i);
+    tcflush(fd,TCIOFLUSH);
+    int bytes_written = write(fd, buf, i);
+    printf("%i\n", bytes_written);
+    sleep(1);
 
     // The while() cycle should be changed in order to respect the specifications
     // of the protocol indicated in the Lab guide
