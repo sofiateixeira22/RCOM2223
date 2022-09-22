@@ -12,6 +12,7 @@
 LinkLayer connection;
 struct termios oldtio;
 struct termios newtio;
+int fd;
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
@@ -20,15 +21,12 @@ int llopen(LinkLayer connectionParameters)
     connection=connectionParameters;
     // Open serial port device for reading and writing and not as controlling tty
     // because we don't want to get killed if linenoise sends CTRL-C.
-    int fd = open(connection.serialPort, O_RDWR | O_NOCTTY);
+    fd = open(connection.serialPort, O_RDWR | O_NOCTTY);
     if (fd < 0)
     {
         perror(connection.serialPort);
         exit(-1);
     }
-
-
-
     // Save current port settings
     if (tcgetattr(fd, &oldtio) == -1)
     {
