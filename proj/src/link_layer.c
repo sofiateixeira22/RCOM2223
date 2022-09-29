@@ -18,6 +18,9 @@ struct termios newtio;
 int fd;
 
 #define FLAG (0b01111110)
+#define ESCAPE (0x7d)
+#define ESCAPE_FLAG (0x5e)
+#define ESCAPE_ESCAPE (0x5d)
 #define ADR_TX (0b00000011)
 #define ADR_RX (0b00000001)
 #define CTRL_SET (0b00000011)
@@ -30,7 +33,7 @@ unsigned char alarmEnabled=0, tries=0;
 unsigned char buf[256];
 
 typedef struct {
-    enum state_t { SMSTART,SMFLAG,SMADR,SMCTRL,SMBCC1,SMDATA,SMBCC2,SMEND} state;
+    enum state_t { SMSTART,SMFLAG,SMADR,SMCTRL,SMBCC1,SMDATA,SMESC,SMBCC2,SMEND} state;
     unsigned char adr;
     unsigned char ctrl;
     unsigned char bcc;
@@ -70,7 +73,6 @@ void state_machine(unsigned char byte,State* state){
             break;
         case SMFLAG:
             if(byte==FLAG){
-                state->state=SMFLAG;
                 break;
             }
             if(byte==ADR_TX || byte == ADR_RX){
@@ -120,20 +122,52 @@ void state_machine(unsigned char byte,State* state){
             }
             if(state->ctrl==CTRL_DATA(0) || state->ctrl==CTRL_DATA(1)){
                 state->data_size=0;
+                if(byte==ESCAPE){
+                    state->bcc=0;
+                    state->state=SMESC;
+                    break;       
+                }
                 state->data[state->data_size++]=byte;
                 state->bcc=byte;
                 state->state=SMDATA;
+                break;
             }
             state->state=SMSTART;
             break;
         case SMDATA:
+            if(byte==ESCAPE){
+                state->state=SMESC;
+                break;       
+            }
             if(byte==state->bcc){
-                //TODO if BCC is flag.
                 state->state=SMBCC2;
                 break;
             }
-            if(byte==FLAG){ //TODO byte stuffing
+            if(byte==FLAG){
                 state->state=SMFLAG;
+                break;
+            }
+            state->state=SMSTART;
+            break;
+        case SMESC:
+            if(byte==ESCAPE_FLAG){
+                if(state->bcc==FLAG){
+                    state->state=SMBCC2;
+                    break;
+                }
+                state->bcc^=FLAG;
+                state->data[state->data_size++]=FLAG;
+                state->state=SMDATA;
+                break;
+            }
+            if(byte==ESCAPE_ESCAPE){
+                if(state->bcc==ESCAPE){
+                    state->state=SMBCC2;
+                    break;
+                }
+                state->bcc^=ESCAPE;
+                state->data[state->data_size++]=ESCAPE;
+                state->state=SMDATA;
                 break;
             }
             state->state=SMSTART;
