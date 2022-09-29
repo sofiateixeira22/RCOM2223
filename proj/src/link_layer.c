@@ -29,6 +29,7 @@ int fd;
 #define CTRL_RR(R) (R%2?0b10000101:0b00000101)
 #define CTRL_REJ(R) (R%2?0b10000001:0b00000001)
 #define CTRL_DATA(S) (S%2?0b01000000:0b00000000)
+#define PACKET_SIZE_LIMIT 256
 unsigned char alarmEnabled=0, tries=0;
 unsigned char buf[256];
 
@@ -40,8 +41,27 @@ typedef struct {
     unsigned char *data;
     unsigned char data_size;
 } State;
+State state;
 
 //#include "link_layer.h"
+int stuff(unsigned char *buf, int bufSize, unsigned char* dest, unsigned char *bcc){
+    int size=0;
+    for(unsigned int i=0; i<bufSize ; ++i){
+        *bcc^=buf[i];
+        if(buf[i]==FLAG){
+            dest[size++]=ESCAPE;
+            dest[size++]=ESCAPE_FLAG;
+            break;
+        }
+        if(buf[i]==ESCAPE){
+            dest[size++]=ESCAPE;
+            dest[size++]=ESCAPE_ESCAPE;
+            break;
+        }
+        dest[size++]=buf[i];
+    }
+    return size;
+}
 int buildFrame(unsigned char* buf, unsigned char* data,unsigned int data_size, unsigned char address, unsigned char control, unsigned char bcc2){
     
     buf[0]= FLAG;
@@ -58,10 +78,24 @@ int buildFrame(unsigned char* buf, unsigned char* data,unsigned int data_size, u
     buf[5+data_size]=FLAG;
     return 6+data_size;
 }
+int buildDataFrame(unsigned char* buf, unsigned char* data,unsigned int data_size, unsigned char address, unsigned char control){
+    buf[0]= FLAG;
+    buf[1]= address;
+    buf[2]= control;
+    buf[3]= address ^ control;
+    int offset=0;
+    unsigned char bcc=0;
+    for(unsigned int i=0;i<data_size;++i)
+        stuff(data+i,1,buf+offset,&bcc);
+    buf[4+offset]=bcc;
+    buf[5+offset]=FLAG;
+    return 6+offset;
+}
 
 
 void alarmHandler(int signal){
     ++tries;
+    alarmEnabled=0;
 }
 
 void state_machine(unsigned char byte,State* state){
@@ -188,6 +222,7 @@ void state_machine(unsigned char byte,State* state){
             break;
     }
 }
+
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
@@ -219,7 +254,7 @@ int llopen(LinkLayer connectionParameters)
     // Set input mode (non-canonical, no echo,...)
     newtio.c_lflag = 0;
     newtio.c_cc[VTIME] = 1; // Inter-character timer unused
-    newtio.c_cc[VMIN] = 1;  // Blocking read until 1 char received
+    newtio.c_cc[VMIN] = 0;  // Blocking read until 1 char received
 
     // VTIME e VMIN should be changed in order to protect with a
     // timeout the reception of the following character(s)
@@ -238,39 +273,71 @@ int llopen(LinkLayer connectionParameters)
         exit(-1);
     }
     
-    // TODO
-    
     signal(SIGALRM,alarmHandler);
 
     if(connection.role==LlTx){ //Transmitter
-        int size = buildFrame(buf,NULL,0,ADR_TX,CTRL_SET,0);
-        write(fd,buf,size);
-        sleep(1);
-    }
-    else{ // Receiver
-        while(1){
-            int bytes_read = read(fd,buf,256);
-            if(bytes_read<0)
-                return -1;
-            State state;
-            state.state=SMSTART;
-            for(unsigned int i=0;i<bytes_read;++i){
-                state_machine(buf[i],&state);
-                if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_SET)
-                    return 1;
+        int receivedUA=0;
+        state.state=SMSTART;
+        tries=0;
+        while(tries<connection.nRetransmissions && !receivedUA){
+            alarm(connection.timeout);
+            alarmEnabled=1;
+            if(tries>0)
+                printf("Timed out.\n");
+            int size = buildFrame(buf,NULL,0,ADR_TX,CTRL_SET,0);
+            write(fd,buf,size);
+            while(alarmEnabled && !receivedUA){
+                int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
+                if(bytes_read<0)
+                    return -1;
+                for(unsigned int i=0;i<bytes_read && !receivedUA;++i){
+                    state_machine(buf[i],&state);
+                    if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_UA)
+                        receivedUA=1;
+                }
             }
         }
+        if(receivedUA)
+            printf("Received UA.\n");
+        return 1;
     }
-    return 1;
+    else{ // Receiver
+        tries=0;
+        
+        state.state=SMSTART;
+        int receivedSET=0;
+        while(!receivedSET){
+            int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
+            if(bytes_read<0)
+                return -1;
+            for(unsigned int i=0;i<bytes_read && !receivedSET;++i){
+                state_machine(buf[i],&state);
+                if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_SET)
+                    receivedSET=1;
+            }
+        }
+        int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
+        sleep(9);
+        write(fd,buf,frame_size); //sends UA reply.
+        return 1;
+    }
+    return -1;
 }
 
 ////////////////////////////////////////////////
 // LLWRITE
 ////////////////////////////////////////////////
-int llwrite(const unsigned char *buf, int bufSize)
+int llwrite(const unsigned char *buffer, int bufferSize)
 {
-    // TODO
-
+    unsigned char bigBuf[bufferSize*2+6];
+    int frame_size=buildDataFrame(bigBuf,buffer,bufferSize,ADR_TX,CTRL_DATA(0));
+    
+    for(unsigned int sent=0;sent<frame_size;){ //In case write doesnt write all bytes from the first call.
+        int ret=write(fd,bigBuf+sent,frame_size-sent);
+        if(ret==-1)
+            return -1;
+        sent+=ret;
+    }
     return 0;
 }
 
@@ -279,8 +346,24 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
-    // TODO
-
+    int receivedPacket=0;
+    state.data=packet; //State machine writes to packet buffer directly.
+    while(!receivedPacket){
+        int bytes_read = read(fd,packet,PACKET_SIZE_LIMIT);
+        if(bytes_read<0)
+            return -1;
+        for(unsigned int i=0;i<bytes_read && !receivedPacket;++i){
+            state_machine(packet[i],&state);
+            if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_SET){
+                int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
+                write(fd,buf,frame_size); //sends UA reply.
+            }
+            if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_DATA(0)){ //TODO alternate frame counter bit.
+                return state.data_size;
+            }
+            //TODO maybe handle other commands?
+        }
+    }
     return 0;
 }
 

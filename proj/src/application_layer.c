@@ -18,6 +18,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     if( 0 == strcmp(role,"tx" ) ){
         ll.role=LlTx;
         if(1!=llopen(ll)){
+            sleep(1);
             llclose(0);
             return;
         }
@@ -26,6 +27,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     else if( 0 == strcmp(role,"rx")){
         ll.role=LlRx;
         if(1!=llopen(ll)){
+            sleep(1);
             llclose(0);
             return;
         }
