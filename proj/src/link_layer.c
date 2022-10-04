@@ -32,9 +32,10 @@ int fd;
 #define PACKET_SIZE_LIMIT 256
 unsigned char alarmEnabled=0, tries=0;
 unsigned char buf[256];
+unsigned char data_s_flag = 0;
 
 typedef struct {
-    enum state_t { SMSTART,SMFLAG,SMADR,SMCTRL,SMBCC1,SMDATA,SMESC,SMBCC2,SMEND} state;
+    enum state_t { SMSTART,SMFLAG,SMADR,SMCTRL,SMBCC1,SMDATA,SMESC,SMBCC2,SMEND,SMREJ} state;
     unsigned char adr;
     unsigned char ctrl;
     unsigned char bcc;
@@ -100,6 +101,7 @@ void alarmHandler(int signal){
 
 void state_machine(unsigned char byte,State* state){
     switch (state->state){
+        case SMREJ:
         case SMEND:
         case SMSTART:
             if(byte==FLAG)
@@ -154,7 +156,7 @@ void state_machine(unsigned char byte,State* state){
                 state->state=SMEND; //received valid frame.
                 break;
             }
-            if(state->ctrl==CTRL_DATA(0) || state->ctrl==CTRL_DATA(1)){
+            if((state->ctrl==CTRL_DATA(0) || state->ctrl==CTRL_DATA(1) ) && state->data != NULL){
                 state->data_size=0;
                 if(byte==ESCAPE){
                     state->bcc=0;
@@ -178,12 +180,16 @@ void state_machine(unsigned char byte,State* state){
                 break;
             }
             if(byte==FLAG){
-                state->state=SMFLAG;
+                state->state=SMREJ;
                 break;
             }
             state->state=SMSTART;
             break;
         case SMESC:
+            if(byte==FLAG){
+                state->state=SMREJ;
+                break;
+            }
             if(byte==ESCAPE_FLAG){
                 if(state->bcc==FLAG){
                     state->state=SMBCC2;
@@ -329,14 +335,58 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buffer, int bufferSize)
 {
-    unsigned char bigBuf[bufferSize*2+6];
-    int frame_size=buildDataFrame(bigBuf,buffer,bufferSize,ADR_TX,CTRL_DATA(0));
+    unsigned char bigBuf[bufferSize*2+6]; //TODO optimize by not copying to a new buffer.
+    int frame_size=buildDataFrame(bigBuf,buffer,bufferSize,ADR_TX,CTRL_DATA(data_s_flag));
     
     for(unsigned int sent=0;sent<frame_size;){ //In case write doesnt write all bytes from the first call.
         int ret=write(fd,bigBuf+sent,frame_size-sent);
         if(ret==-1)
             return -1;
         sent+=ret;
+    }
+
+    int receivedPacket=0, resend=0, retransmissions=0;
+    state.data=NULL; //State machine writes to packet buffer directly.
+    
+    alarmEnabled=1;
+    alarm(connection.timeout);
+    while(!receivedPacket){
+        if(!alarmEnabled){
+            resend=1;
+            alarmEnabled=1;
+            alarm(connection.timeout);
+        }
+        if(resend){
+            if(retransmissions==connection.nRetransmissions){
+                printf("Exceeded retransmission limit.\n");
+                return -1;
+            }
+            for(unsigned int sent=0;sent<frame_size;){ //In case write doesnt write all bytes from the first call.
+                int ret=write(fd,bigBuf+sent,frame_size-sent);
+                if(ret==-1)
+                    return -1;
+                sent+=ret;
+            }
+            resend=0;
+            retransmissions++;
+        }
+        int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
+        if(bytes_read<0)
+            return -1;
+        for(unsigned int i=0;i<bytes_read && !receivedPacket;++i){ //TODO avoid discarding reads after valid packet.
+            state_machine(buf[i],&state);
+            if(state.state==SMEND){
+                if(state.adr==ADR_TX && state.ctrl == CTRL_RR(data_s_flag)){
+                    receivedPacket = 1;
+                    break;
+                }
+                if(state.adr==ADR_TX && state.ctrl == CTRL_REJ(data_s_flag)){
+                    resend=1;
+                    break;
+                }
+            }
+            //TODO maybe handle other commands?
+        }
     }
     return 0;
 }
@@ -354,12 +404,25 @@ int llread(unsigned char *packet)
             return -1;
         for(unsigned int i=0;i<bytes_read && !receivedPacket;++i){
             state_machine(packet[i],&state);
+            if(state.state==SMREJ && state.adr==ADR_TX){
+                int frame_size=buildFrame(buf,0,0,ADR_TX,(state.ctrl==CTRL_DATA(0)?CTRL_REJ(0):CTRL_REJ(1)),0);
+                write(fd,buf,frame_size); //sends REJ reply.
+            }
             if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_SET){
                 int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
                 write(fd,buf,frame_size); //sends UA reply.
             }
-            if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_DATA(0)){ //TODO alternate frame counter bit.
-                return state.data_size;
+            if(state.state==SMEND && state.adr==ADR_TX){
+                if(state.ctrl == CTRL_DATA(0)){
+                    int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_RR(0),0);
+                    write(fd,buf,frame_size);
+                    return state.data_size;
+                }
+                if(state.ctrl == CTRL_DATA(1)){
+                    int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_RR(1),0);
+                    write(fd,buf,frame_size);
+                    return state.data_size;
+                }
             }
             //TODO maybe handle other commands?
         }
