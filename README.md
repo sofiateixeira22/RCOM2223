@@ -4,10 +4,10 @@
 
 - [x] llopen
 - [ ] llclose
-- [ ] llwrite
-- [ ] llread
-- [ ] Link Layer - if BCC is flag
-- [ ] Link Layer - byte stuffing
+- [x] llwrite
+- [x] llread
+- [x] Link Layer - if BCC is flag
+- [x] Link Layer - byte stuffing
 - [ ] Application Layer
 
 ## Group members
