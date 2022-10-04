@@ -45,7 +45,7 @@ typedef struct {
 State state;
 
 //#include "link_layer.h"
-int stuff(unsigned char *buf, int bufSize, unsigned char* dest, unsigned char *bcc){
+int stuff(const unsigned char *buf, int bufSize, unsigned char* dest, unsigned char *bcc){
     int size=0;
     for(unsigned int i=0; i<bufSize ; ++i){
         *bcc^=buf[i];
@@ -79,18 +79,19 @@ int buildFrame(unsigned char* buf, unsigned char* data,unsigned int data_size, u
     buf[5+data_size]=FLAG;
     return 6+data_size;
 }
-int buildDataFrame(unsigned char* buf, unsigned char* data,unsigned int data_size, unsigned char address, unsigned char control){
-    buf[0]= FLAG;
-    buf[1]= address;
-    buf[2]= control;
-    buf[3]= address ^ control;
+int buildDataFrame(unsigned char* framebuf, const unsigned char* data,unsigned int data_size, unsigned char address, unsigned char control){
+    framebuf[0]= FLAG;
+    framebuf[1]= address;
+    framebuf[2]= control;
+    framebuf[3]= address ^ control;
     int offset=0;
     unsigned char bcc=0;
-    for(unsigned int i=0;i<data_size;++i)
-        stuff(data+i,1,buf+offset,&bcc);
-    buf[4+offset]=bcc;
-    buf[5+offset]=FLAG;
-    return 6+offset;
+    for(unsigned int i=0;i<data_size;++i){
+        offset+=stuff(data+i,1,framebuf+offset+4,&bcc);
+    }
+    framebuf[5+offset]=bcc;
+    framebuf[6+offset]=FLAG;
+    return 7+offset;
 }
 
 
@@ -103,6 +104,7 @@ void state_machine(unsigned char byte,State* state){
     switch (state->state){
         case SMREJ:
         case SMEND:
+            state->state=SMSTART;
         case SMSTART:
             if(byte==FLAG)
                 state->state=SMFLAG;
@@ -183,7 +185,8 @@ void state_machine(unsigned char byte,State* state){
                 state->state=SMREJ;
                 break;
             }
-            state->state=SMSTART;
+            state->data[state->data_size++]=byte;
+            state->bcc^=byte;
             break;
         case SMESC:
             if(byte==FLAG){
@@ -222,8 +225,9 @@ void state_machine(unsigned char byte,State* state){
                 state->bcc=0;
                 break;
             }
-            state->bcc=byte; 
             state->data[state->data_size++]=state->bcc;
+            state->data[state->data_size++]=byte;
+            state->bcc=byte;
             state->state=SMDATA;
             break;
     }
@@ -323,7 +327,7 @@ int llopen(LinkLayer connectionParameters)
             }
         }
         int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
-        sleep(9);
+        //sleep(9);
         write(fd,buf,frame_size); //sends UA reply.
         return 1;
     }
