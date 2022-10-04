@@ -7,11 +7,14 @@ CFLAGS = -Wall
 
 SRC = src/
 INCLUDE = include/
-BIN = bin/
+BIN = bin
 CABLE_DIR = cable/
 
 TX_SERIAL_PORT = /dev/ttyS10
 RX_SERIAL_PORT = /dev/ttyS11
+
+TX_SERIAL_PORT_aula = /dev/ttyS4
+RX_SERIAL_PORT_aula = /dev/ttyS0
 
 TX_FILE = penguin.gif
 RX_FILE = penguin-received.gif
@@ -33,6 +36,14 @@ run_tx: $(BIN)/main
 .PHONY: run_rx
 run_rx: $(BIN)/main
 	./$(BIN)/main $(RX_SERIAL_PORT) rx $(RX_FILE)
+
+.PHONY: run_tx_aula
+run_tx_aula: $(BIN)/main
+	./$(BIN)/main $(TX_SERIAL_PORT_aula) tx $(TX_FILE)
+
+.PHONY: run_rx_aula
+run_rx_aula: $(BIN)/main
+	./$(BIN)/main $(RX_SERIAL_PORT_aula) rx $(RX_FILE)
 
 .PHONY: run_cable
 run_cable: $(BIN)/cable
