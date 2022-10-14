@@ -31,7 +31,7 @@ int fd;
 #define CTRL_DATA(S) (S%2?0b01000000:0b00000000)
 #define PACKET_SIZE_LIMIT 256
 unsigned char alarmEnabled=0, tries=0;
-unsigned char buf[256];
+unsigned char buf[512];
 unsigned char data_s_flag = 0;
 
 typedef struct {
@@ -40,7 +40,7 @@ typedef struct {
     unsigned char ctrl;
     unsigned char bcc;
     unsigned char *data;
-    unsigned char data_size;
+    unsigned int data_size;
 } State;
 State state;
 
@@ -339,7 +339,7 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buffer, int bufferSize)
 {
-    unsigned char bigBuf[bufferSize*2+6]; //TODO optimize by not copying to a new buffer.
+    unsigned char bigBuf[bufferSize*2+10]; //TODO optimize by not copying to a new buffer.
     int frame_size=buildDataFrame(bigBuf,buffer,bufferSize,ADR_TX,CTRL_DATA(data_s_flag));
     
     for(unsigned int sent=0;sent<frame_size;){ //In case write doesnt write all bytes from the first call.
@@ -403,11 +403,16 @@ int llread(unsigned char *packet)
     int receivedPacket=0;
     state.data=packet; //State machine writes to packet buffer directly.
     while(!receivedPacket){
-        int bytes_read = read(fd,packet,PACKET_SIZE_LIMIT);
+        int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
         if(bytes_read<0)
             return -1;
         for(unsigned int i=0;i<bytes_read && !receivedPacket;++i){
-            state_machine(packet[i],&state);
+            state_machine(buf[i],&state);
+            //TESTING
+            if(state.state>=SMBCC1 && state.data!=NULL){
+                //printf("(state:%i,packet:%i,data_size:%i,last_data:%i)\n",state.state,packet[i], state.data_size,state.data[state.data_size-1]);
+            }
+
             if(state.state==SMREJ && state.adr==ADR_TX){
                 int frame_size=buildFrame(buf,0,0,ADR_TX,(state.ctrl==CTRL_DATA(0)?CTRL_REJ(0):CTRL_REJ(1)),0);
                 write(fd,buf,frame_size); //sends REJ reply.

@@ -23,7 +23,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             llclose(0);
             return;
         }
-        unsigned char buf[256];
+        unsigned char buf[512];
         for(unsigned int i =0;i<256;++i){
             buf[i]=i;
         }
@@ -36,12 +36,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             llclose(0);
             return;
         }
-        unsigned char buf[256];
+        unsigned char buf[2048];
         llread(buf);
         int flag=0;
         for(unsigned int i =0;i<256;++i){
             if(buf[i]!=i){
-                printf("llread[%i] error.\n",i);
+                printf("llread[%i] error. Was:%i\n",i,buf[i]);
                 flag=1;
             }
         }
