@@ -16,6 +16,7 @@ LinkLayer connection;
 struct termios oldtio;
 struct termios newtio;
 int fd;
+int receivedDISC = 0;
 
 #define FLAG (0b01111110)
 #define ESCAPE (0x7d)
@@ -295,6 +296,7 @@ int llopen(LinkLayer connectionParameters)
             if(tries>0)
                 printf("Timed out.\n");
             int size = buildFrame(buf,NULL,0,ADR_TX,CTRL_SET,0);
+            printf("llopen: Sended SET.\n");
             write(fd,buf,size);
             while(alarmEnabled && !receivedUA){
                 int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
@@ -307,8 +309,7 @@ int llopen(LinkLayer connectionParameters)
                 }
             }
         }
-        if(receivedUA)
-            printf("Received UA.\n");
+        if(receivedUA) printf("llopen: Received UA.\n");
         return 1;
     }
     else{ // Receiver
@@ -326,9 +327,11 @@ int llopen(LinkLayer connectionParameters)
                     receivedSET=1;
             }
         }
+        if(receivedSET) printf("llopen: Received Set.\n");
         int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
         //sleep(9);
         write(fd,buf,frame_size); //sends UA reply.
+        printf("llopen: Sended UA.\n");
         return 1;
     }
     return -1;
@@ -416,22 +419,31 @@ int llread(unsigned char *packet)
             if(state.state==SMREJ && state.adr==ADR_TX){
                 int frame_size=buildFrame(buf,0,0,ADR_TX,(state.ctrl==CTRL_DATA(0)?CTRL_REJ(0):CTRL_REJ(1)),0);
                 write(fd,buf,frame_size); //sends REJ reply.
+                printf("llread: Sended REJ.\n");
             }
             if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_SET){
                 int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
                 write(fd,buf,frame_size); //sends UA reply.
+                printf("llread: Sended UA.\n");
             }
             if(state.state==SMEND && state.adr==ADR_TX){
                 if(state.ctrl == CTRL_DATA(0)){
                     int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_RR(0),0);
                     write(fd,buf,frame_size);
+                    printf("llread: Sended RR.\n");
                     return state.data_size;
                 }
                 if(state.ctrl == CTRL_DATA(1)){
                     int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_RR(1),0);
                     write(fd,buf,frame_size);
+                    printf("llread: Sended RR.\n");
                     return state.data_size;
                 }
+            }
+            if(state.ctrl==CTRL_DISC) {
+                receivedDISC = 1;
+                printf("llread: Received DISC.\n");
+                break;
             }
             //TODO maybe handle other commands?
         }
@@ -444,6 +456,76 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 int llclose(int showStatistics)
 {
+    //trasmistor - sends DISC, receives UA
+    //receiver - receives DISC in llread? , sends UA
+    signal(SIGALRM,alarmHandler);
+
+    if(connection.role==LlTx) { //Transmitter
+
+        int receivedDISC_tx=0;
+        //state.state=SMSTART;
+        tries=0;
+        while(tries<connection.nRetransmissions && !receivedDISC_tx){
+            alarm(connection.timeout);
+            alarmEnabled=1;
+            if(tries>0)
+                printf("Timed out.\n");
+            int size = buildFrame(buf,NULL,0,ADR_TX,CTRL_DISC,0);
+            printf("llclose: Sended DISC.\n");
+            write(fd,buf,size);
+            while(alarmEnabled && !receivedDISC_tx){
+                int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
+                if(bytes_read<0)
+                    return -1;
+                for(unsigned int i=0;i<bytes_read && !receivedDISC_tx;++i){
+                    state_machine(buf[i],&state);
+                    if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_DISC)
+                        receivedDISC_tx=1;
+                }
+            }
+        }
+        if(receivedDISC_tx) printf("llclose: Received DISC.\n");
+        int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
+        //sleep(9);
+        write(fd,buf,frame_size); //sends UA reply.
+        printf("llclose: Sended UA.\n");
+
+    } else { //Receiver
+
+        tries=0;
+        
+        //state.state=SMSTART;
+        //int receivedSET=0;
+        while(!receivedDISC){
+            int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
+            if(bytes_read<0)
+                return -1;
+            for(unsigned int i=0;i<bytes_read && !receivedDISC;++i){
+                state_machine(buf[i],&state);
+                if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_DISC)
+                    receivedDISC=1;
+            }
+        }
+        if(receivedDISC) printf("llclose: Received DISC .\n");
+        int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_DISC,0);
+        //sleep(9);
+        write(fd,buf,frame_size); //sends DISC reply.
+        printf("llclose: Sended DISC.\n");
+
+        int receivedUA=0;
+        while(!receivedUA){
+            int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
+            if(bytes_read<0)
+                return -1;
+            for(unsigned int i=0;i<bytes_read && !receivedUA;++i){
+                state_machine(buf[i],&state);
+                if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_UA)
+                    receivedUA=1;
+            }
+        }
+        if(receivedUA) printf("llclose: Received UA .\n");
+    }
+
     // Restore the old port settings
     if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
     {
