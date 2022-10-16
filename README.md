@@ -3,7 +3,7 @@
 ## Checklist
 
 - [x] llopen
-- [ ] llclose
+- [x] llclose
 - [x] llwrite
 - [x] llread
 - [x] Link Layer - if BCC is flag
