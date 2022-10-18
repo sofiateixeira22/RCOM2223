@@ -30,7 +30,7 @@ int receivedDISC = 0;
 #define CTRL_RR(R) (R%2?0b10000101:0b00000101)
 #define CTRL_REJ(R) (R%2?0b10000001:0b00000001)
 #define CTRL_DATA(S) (S%2?0b01000000:0b00000000)
-#define PACKET_SIZE_LIMIT 256
+#define PACKET_SIZE_LIMIT (256)
 unsigned char alarmEnabled=0, tries=0;
 unsigned char buf[512];
 unsigned char data_s_flag = 0;
@@ -46,38 +46,38 @@ typedef struct {
 State state;
 
 //#include "link_layer.h"
-int stuff(const unsigned char *buf, int bufSize, unsigned char* dest, unsigned char *bcc){
+int stuff(const unsigned char *buffer, int bufSize, unsigned char* dest, unsigned char *bcc){
     int size=0;
     for(unsigned int i=0; i<bufSize ; ++i){
-        *bcc^=buf[i];
-        if(buf[i]==FLAG){
+        *bcc^=buffer[i];
+        if(buffer[i]==FLAG){
             dest[size++]=ESCAPE;
             dest[size++]=ESCAPE_FLAG;
             break;
         }
-        if(buf[i]==ESCAPE){
+        if(buffer[i]==ESCAPE){
             dest[size++]=ESCAPE;
             dest[size++]=ESCAPE_ESCAPE;
             break;
         }
-        dest[size++]=buf[i];
+        dest[size++]=buffer[i];
     }
     return size;
 }
-int buildFrame(unsigned char* buf, unsigned char* data,unsigned int data_size, unsigned char address, unsigned char control, unsigned char bcc2){
+int buildFrame(unsigned char* buffer, unsigned char* data,unsigned int data_size, unsigned char address, unsigned char control, unsigned char bcc2){
     
-    buf[0]= FLAG;
-    buf[1]= address;
-    buf[2]= control;
-    buf[3]= address ^ control;
+    buffer[0]= FLAG;
+    buffer[1]= address;
+    buffer[2]= control;
+    buffer[3]= address ^ control;
     if(data==NULL){
         //is command packet.
-        buf[4]= FLAG;
+        buffer[4]= FLAG;
         return 5;
     }
-    memcpy(buf+4,data,data_size);
-    buf[4+data_size]=bcc2;
-    buf[5+data_size]=FLAG;
+    memcpy(buffer+4,data,data_size);
+    buffer[4+data_size]=bcc2;
+    buffer[5+data_size]=FLAG;
     return 6+data_size;
 }
 int buildDataFrame(unsigned char* framebuf, const unsigned char* data,unsigned int data_size, unsigned char address, unsigned char control){
@@ -296,7 +296,7 @@ int llopen(LinkLayer connectionParameters)
             if(tries>0)
                 printf("Timed out.\n");
             int size = buildFrame(buf,NULL,0,ADR_TX,CTRL_SET,0);
-            printf("llopen: Sended SET.\n");
+            printf("llopen: Sent SET.\n");
             write(fd,buf,size);
             while(alarmEnabled && !receivedUA){
                 int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
@@ -331,7 +331,7 @@ int llopen(LinkLayer connectionParameters)
         int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
         //sleep(9);
         write(fd,buf,frame_size); //sends UA reply.
-        printf("llopen: Sended UA.\n");
+        printf("llopen: Sent UA.\n");
         return 1;
     }
     return -1;
@@ -342,16 +342,14 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buffer, int bufferSize)
 {
-    unsigned char bigBuf[bufferSize*2+10]; //TODO optimize by not copying to a new buffer.
+    unsigned char bigBuf[bufferSize*2+100]; //TODO optimize by not copying to a new buffer.
     int frame_size=buildDataFrame(bigBuf,buffer,bufferSize,ADR_TX,CTRL_DATA(data_s_flag));
-    
     for(unsigned int sent=0;sent<frame_size;){ //In case write doesnt write all bytes from the first call.
         int ret=write(fd,bigBuf+sent,frame_size-sent);
         if(ret==-1)
             return -1;
         sent+=ret;
     }
-
     int receivedPacket=0, resend=0, retransmissions=0;
     state.data=NULL; //State machine writes to packet buffer directly.
     
@@ -419,24 +417,24 @@ int llread(unsigned char *packet)
             if(state.state==SMREJ && state.adr==ADR_TX){
                 int frame_size=buildFrame(buf,0,0,ADR_TX,(state.ctrl==CTRL_DATA(0)?CTRL_REJ(0):CTRL_REJ(1)),0);
                 write(fd,buf,frame_size); //sends REJ reply.
-                printf("llread: Sended REJ.\n");
+                printf("llread: Sent REJ.\n");
             }
             if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_SET){
                 int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
                 write(fd,buf,frame_size); //sends UA reply.
-                printf("llread: Sended UA.\n");
+                printf("llread: Sent UA.\n");
             }
             if(state.state==SMEND && state.adr==ADR_TX){
                 if(state.ctrl == CTRL_DATA(0)){
                     int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_RR(0),0);
                     write(fd,buf,frame_size);
-                    printf("llread: Sended RR.\n");
+                    printf("llread: Sent RR.\n");
                     return state.data_size;
                 }
                 if(state.ctrl == CTRL_DATA(1)){
                     int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_RR(1),0);
                     write(fd,buf,frame_size);
-                    printf("llread: Sended RR.\n");
+                    printf("llread: Sent RR.\n");
                     return state.data_size;
                 }
             }
@@ -471,7 +469,7 @@ int llclose(int showStatistics)
             if(tries>0)
                 printf("Timed out.\n");
             int size = buildFrame(buf,NULL,0,ADR_TX,CTRL_DISC,0);
-            printf("llclose: Sended DISC.\n");
+            printf("llclose: Sent DISC.\n");
             write(fd,buf,size);
             while(alarmEnabled && !receivedDISC_tx){
                 int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
@@ -488,7 +486,7 @@ int llclose(int showStatistics)
         int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
         //sleep(9);
         write(fd,buf,frame_size); //sends UA reply.
-        printf("llclose: Sended UA.\n");
+        printf("llclose: Sent UA.\n");
 
     } else { //Receiver
 
@@ -510,7 +508,7 @@ int llclose(int showStatistics)
         int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_DISC,0);
         //sleep(9);
         write(fd,buf,frame_size); //sends DISC reply.
-        printf("llclose: Sended DISC.\n");
+        printf("llclose: Sent DISC.\n");
 
         int receivedUA=0;
         while(!receivedUA){
