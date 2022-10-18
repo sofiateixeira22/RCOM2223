@@ -11,7 +11,7 @@
 #define CONTROL_DATA (1)
 #define TYPE_FILESIZE (0)
 
-unsigned char appbuf[PACKET_SIZE+4];
+unsigned char appbuf[PACKET_SIZE+30];
 
 int read_next_TLV(unsigned char *addr, unsigned char* t, unsigned char* l, unsigned char** v){
     *t=addr[0];
@@ -40,7 +40,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
     ll.timeout = timeout;
 
     if(llopen(ll)<0) {
-        printf("\nERROR Application Layer: An error occurred while opening the connection.\n");
+        printf("ERROR Application Layer: An error occurred while opening the connection.\n");
         llclose(0);
         return;
     }
@@ -49,16 +49,16 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         FILE* file = fopen(filename, "r");
         
         if(!file) {
-            printf("\nERROR Application Layer: Could not open file to be sent.\n");
+            printf("ERROR Application Layer: Could not open file to be sent.\n");
             return;
         } else {
-            printf("\nApplication Layer: Successfully opened file to be sent.\n");
+            printf("Application Layer: Successfully opened file to be sent.\n");
         }
 
         fseek(file, 0L, SEEK_END);  
         long int file_size = ftell(file);
         fseek(file,0,SEEK_SET);
-        printf("\nApplication Layer File Size: %li bytes\n", file_size);
+        printf("Application Layer File Size: %li bytes\n", file_size);
         appbuf[0]=CONTROL_START;
         appbuf[1]=TYPE_FILESIZE;
         appbuf[2]=sizeof(long);
@@ -66,16 +66,14 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
             appbuf[3+i]= (unsigned char)((((unsigned long)file_size) % (2^(8*(i+1)))) >> 8*i);
         }*/
         *((long*)(appbuf+3))=file_size;
-        printf("\n");
         llwrite(appbuf,10);
-        printf("\n");
         unsigned char failure=0;
         unsigned long bytes_sent =0;
         for(unsigned char i=0;bytes_sent<file_size;++i){
-            unsigned long file_bytes = fread(appbuf+4, 1, (file_size-bytes_sent<PACKET_SIZE? file_size-bytes_sent : PACKET_SIZE), file);
+            unsigned long file_bytes = fread(appbuf+4, 1, (file_size-bytes_sent<PACKET_SIZE-1000? file_size-bytes_sent : PACKET_SIZE-1000), file);
             
-            if(file_bytes!=(file_size-bytes_sent<PACKET_SIZE? file_size-bytes_sent:PACKET_SIZE)){
-                printf("File read failure. file_bytes:%u\n",file_bytes);
+            if(file_bytes!=(file_size-bytes_sent<PACKET_SIZE-1000? file_size-bytes_sent:PACKET_SIZE-1000)){
+                printf("File read failure. file_bytes:%lu\n",file_bytes);
                 failure=1;
                 break;
             }
@@ -88,6 +86,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
                 failure=1;
                 break;
             }
+            printf("applicationLayer: sent packet %i.\n",i);
         }
         if(!failure){
             appbuf[0]=CONTROL_END;
@@ -97,7 +96,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
                 printf("Finished sending.\n");
             }
         }
-        //if(!sendControlPackage())
+        fclose(file);
     } else if(ll.role == LlRx) {
         unsigned long filesize=0,size_received=0;
         int bytes_read = llread(appbuf);
@@ -116,15 +115,16 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
                 printf("\nERROR Application Layer: Could not open file to write in.\n");
                 return;
             } else {
-                printf("\nApplication Layer: Successfully created file to write.\n");
+                printf("\nApplication Layer: Received control packet and created file to write.\n");
             }
             unsigned char early_end =0, last_sequence_number=0;
             for(;size_received<filesize;){
                 int numbytes=llread(appbuf);
                 if(numbytes<1){
-                    if(numbytes==-1)
+                    if(numbytes==-1){
                         printf("llread error.\n");
-                    else
+                        break;
+                    }else
                         printf("Received a packet that is too small. (%i bytes)\n",numbytes);
                 }
                 if(appbuf[0]==CONTROL_END){
@@ -135,16 +135,15 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
                 if(appbuf[0]==CONTROL_DATA){
                     if(numbytes<5)
                         printf("Received a data packet that is too small. (%i bytes)\n",numbytes);
-                    if(appbuf[1]!=last_sequence_number++){
-                        printf("Received packet wrong sequence number. Was %i, expected:%i",appbuf[1],last_sequence_number-1);
+                    if(appbuf[1]!=last_sequence_number){
+                        printf("Received packet with wrong sequence number. Was %i, expected:%i\n",appbuf[1],last_sequence_number-1);
                     }else{
                         unsigned long size=appbuf[3]+appbuf[2]*256;
                         if(size!=numbytes-4)
                             printf("Packet length didn't match header. Was %i, expected %lu.\n",numbytes-4,size);
-                        else{
-                            fwrite(appbuf+4,size,1,file);
-                            size_received+=size;
-                        }
+                        fwrite(appbuf+4,1,size,file);
+                        size_received+=size;
+                        printf("Received packet numbered %i.\n",last_sequence_number++);
                     }
                 }
             }
@@ -162,6 +161,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
                     printf("Received end packet. Disconnecting\n");
                 }
             }
+            fclose(file);
         }else{
             printf("Transmission didn't start with a start packet.\n");
             for(unsigned int i=0;i<10;++i)

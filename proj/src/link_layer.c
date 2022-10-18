@@ -27,9 +27,9 @@ int receivedDISC = 0;
 #define CTRL_SET (0b00000011)
 #define CTRL_DISC (0b00001011)
 #define CTRL_UA (0b00000111)
-#define CTRL_RR(R) (R%2?0b10000101:0b00000101)
-#define CTRL_REJ(R) (R%2?0b10000001:0b00000001)
-#define CTRL_DATA(S) (S%2?0b01000000:0b00000000)
+#define CTRL_RR(R) ((R)%2?0b10000101:0b00000101)
+#define CTRL_REJ(R) ((R)%2?0b10000001:0b00000001)
+#define CTRL_DATA(S) ((S)%2?0b01000000:0b00000000)
 #define PACKET_SIZE_LIMIT (256)
 unsigned char alarmEnabled=0, tries=0;
 unsigned char buf[512];
@@ -64,21 +64,14 @@ int stuff(const unsigned char *buffer, int bufSize, unsigned char* dest, unsigne
     }
     return size;
 }
-int buildFrame(unsigned char* buffer, unsigned char* data,unsigned int data_size, unsigned char address, unsigned char control, unsigned char bcc2){
-    
+int buildCommandFrame(unsigned char* buffer, unsigned char address, unsigned char control){
     buffer[0]= FLAG;
     buffer[1]= address;
     buffer[2]= control;
     buffer[3]= address ^ control;
-    if(data==NULL){
-        //is command packet.
-        buffer[4]= FLAG;
-        return 5;
-    }
-    memcpy(buffer+4,data,data_size);
-    buffer[4+data_size]=bcc2;
-    buffer[5+data_size]=FLAG;
-    return 6+data_size;
+    //is command packet.
+    buffer[4]= FLAG;
+    return 5;
 }
 int buildDataFrame(unsigned char* framebuf, const unsigned char* data,unsigned int data_size, unsigned char address, unsigned char control){
     framebuf[0]= FLAG;
@@ -90,9 +83,9 @@ int buildDataFrame(unsigned char* framebuf, const unsigned char* data,unsigned i
     for(unsigned int i=0;i<data_size;++i){
         offset+=stuff(data+i,1,framebuf+offset+4,&bcc);
     }
-    framebuf[5+offset]=bcc;
-    framebuf[6+offset]=FLAG;
-    return 7+offset;
+    framebuf[4+offset]=bcc;
+    framebuf[5+offset]=FLAG;
+    return 6+offset;
 }
 
 
@@ -111,6 +104,7 @@ void state_machine(unsigned char byte,State* state){
                 state->state=SMFLAG;
             break;
         case SMFLAG:
+            state->data_size=0;
             if(byte==FLAG){
                 break;
             }
@@ -178,19 +172,19 @@ void state_machine(unsigned char byte,State* state){
                 state->state=SMESC;
                 break;       
             }
-            if(byte==state->bcc){
-                state->state=SMBCC2;
+            if(byte==FLAG){printf("185, %i ",state->data_size);
+                state->state=SMREJ;
                 break;
             }
-            if(byte==FLAG){
-                state->state=SMREJ;
+            if(byte==state->bcc){
+                state->state=SMBCC2;
                 break;
             }
             state->data[state->data_size++]=byte;
             state->bcc^=byte;
             break;
         case SMESC:
-            if(byte==FLAG){
+            if(byte==FLAG){printf("193");
                 state->state=SMREJ;
                 break;
             }
@@ -295,7 +289,7 @@ int llopen(LinkLayer connectionParameters)
             alarmEnabled=1;
             if(tries>0)
                 printf("Timed out.\n");
-            int size = buildFrame(buf,NULL,0,ADR_TX,CTRL_SET,0);
+            int size = buildCommandFrame(buf,ADR_TX,CTRL_SET);
             printf("llopen: Sent SET.\n");
             write(fd,buf,size);
             while(alarmEnabled && !receivedUA){
@@ -328,7 +322,7 @@ int llopen(LinkLayer connectionParameters)
             }
         }
         if(receivedSET) printf("llopen: Received Set.\n");
-        int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
+        int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_UA);
         //sleep(9);
         write(fd,buf,frame_size); //sends UA reply.
         printf("llopen: Sent UA.\n");
@@ -380,19 +374,18 @@ int llwrite(const unsigned char *buffer, int bufferSize)
             return -1;
         for(unsigned int i=0;i<bytes_read && !receivedPacket;++i){ //TODO avoid discarding reads after valid packet.
             state_machine(buf[i],&state);
-            if(state.state==SMEND){
-                if(state.adr==ADR_TX && state.ctrl == CTRL_RR(data_s_flag)){
-                    receivedPacket = 1;
-                    break;
+            if(state.state==SMEND){printf("377. adr:%x, ctrl:%x\n",state.adr,state.ctrl);
+                if(state.adr==ADR_TX && state.ctrl == CTRL_RR(data_s_flag?0:1)){ //Receiver Ready for next.
+                    receivedPacket = 1;printf("379\n");
                 }
-                if(state.adr==ADR_TX && state.ctrl == CTRL_REJ(data_s_flag)){
-                    resend=1;
-                    break;
+                if(state.adr==ADR_TX && (state.ctrl == CTRL_RR(data_s_flag) || state.ctrl == CTRL_REJ(data_s_flag) ) ){//Requesting retransmission.
+                    resend=1;printf("383");
                 }
             }
             //TODO maybe handle other commands?
         }
-    }
+    }printf("387\n");
+    data_s_flag= data_s_flag?0:1;
     return 0;
 }
 
@@ -409,38 +402,39 @@ int llread(unsigned char *packet)
             return -1;
         for(unsigned int i=0;i<bytes_read && !receivedPacket;++i){
             state_machine(buf[i],&state);
-            //TESTING
-            if(state.state>=SMBCC1 && state.data!=NULL){
-                //printf("(state:%i,packet:%i,data_size:%i,last_data:%i)\n",state.state,packet[i], state.data_size,state.data[state.data_size-1]);
-            }
+            //Debugging
+            /*if(state.state>=SMBCC1){
+                printf("(state:%i,packet:%i,data_size:%i,last_data:%i,bcc:%i)\n",state.state, buf[i], state.data_size,state.data[state.data_size>0?state.data_size-1:0],state.bcc);
+            }*/
 
             if(state.state==SMREJ && state.adr==ADR_TX){
-                int frame_size=buildFrame(buf,0,0,ADR_TX,(state.ctrl==CTRL_DATA(0)?CTRL_REJ(0):CTRL_REJ(1)),0);
+                int frame_size=buildCommandFrame(buf,ADR_TX,(state.ctrl==CTRL_DATA(0)?CTRL_REJ(0):CTRL_REJ(1)));
                 write(fd,buf,frame_size); //sends REJ reply.
                 printf("llread: Sent REJ.\n");
             }
             if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_SET){
-                int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
+                int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_UA);
                 write(fd,buf,frame_size); //sends UA reply.
                 printf("llread: Sent UA.\n");
             }
             if(state.state==SMEND && state.adr==ADR_TX){
-                if(state.ctrl == CTRL_DATA(0)){
-                    int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_RR(0),0);
+                if(state.ctrl == CTRL_DATA(data_s_flag)){
+                    data_s_flag=data_s_flag?0:1;
+                    int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_RR(data_s_flag));
                     write(fd,buf,frame_size);
-                    printf("llread: Sent RR.\n");
+                    printf("llread: Sent RR %i.\n",data_s_flag);
                     return state.data_size;
                 }
-                if(state.ctrl == CTRL_DATA(1)){
-                    int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_RR(1),0);
+                else{
+                    int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_RR(data_s_flag));
                     write(fd,buf,frame_size);
-                    printf("llread: Sent RR.\n");
-                    return state.data_size;
+                    printf("llread: Sent RR %i requesting retransmission.\n",data_s_flag);
                 }
             }
             if(state.ctrl==CTRL_DISC) {
                 receivedDISC = 1;
                 printf("llread: Received DISC.\n");
+                return -1; //TODO maybe dont throw error, by catching this in application layer?
                 break;
             }
             //TODO maybe handle other commands?
@@ -468,7 +462,7 @@ int llclose(int showStatistics)
             alarmEnabled=1;
             if(tries>0)
                 printf("Timed out.\n");
-            int size = buildFrame(buf,NULL,0,ADR_TX,CTRL_DISC,0);
+            int size = buildCommandFrame(buf,ADR_TX,CTRL_DISC);
             printf("llclose: Sent DISC.\n");
             write(fd,buf,size);
             while(alarmEnabled && !receivedDISC_tx){
@@ -483,7 +477,7 @@ int llclose(int showStatistics)
             }
         }
         if(receivedDISC_tx) printf("llclose: Received DISC.\n");
-        int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_UA,0);
+        int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_UA);
         //sleep(9);
         write(fd,buf,frame_size); //sends UA reply.
         printf("llclose: Sent UA.\n");
@@ -505,7 +499,7 @@ int llclose(int showStatistics)
             }
         }
         if(receivedDISC) printf("llclose: Received DISC .\n");
-        int frame_size=buildFrame(buf,0,0,ADR_TX,CTRL_DISC,0);
+        int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_DISC);
         //sleep(9);
         write(fd,buf,frame_size); //sends DISC reply.
         printf("llclose: Sent DISC.\n");
