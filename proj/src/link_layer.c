@@ -266,7 +266,7 @@ int llopen(LinkLayer connectionParameters)
 
     // Set input mode (non-canonical, no echo,...)
     newtio.c_lflag = 0;
-    newtio.c_cc[VTIME] = 1; // Inter-character timer unused
+    newtio.c_cc[VTIME] = 0; // Inter-character timer unused
     newtio.c_cc[VMIN] = 0;  // Blocking read until 1 char received
 
     // VTIME e VMIN should be changed in order to protect with a
@@ -368,30 +368,35 @@ int llwrite(const unsigned char *buffer, int bufferSize)
             alarm(connection.timeout);
         }
         if(resend){
-            if(retransmissions==connection.nRetransmissions){
+            if(retransmissions>0) printf("Timed out.\n");
+            if(retransmissions == connection.nRetransmissions){
                 printf("Exceeded retransmission limit.\n");
                 return -1;
             }
+            
             for(unsigned int sent=0;sent<frame_size;){ //In case write doesnt write all bytes from the first call.
                 int ret=write(fd,bigBuf+sent,frame_size-sent);
                 if(ret==-1)
                     return -1;
                 sent+=ret;
             }
-            resend=0;
+            resend = 0;
             retransmissions++;
         }
         int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
         if(bytes_read<0)
             return -1;
-        for(unsigned int i=0;i<bytes_read && !receivedPacket;++i){ //TODO avoid discarding reads after valid packet.
+        for(unsigned int i=0;i<bytes_read && !receivedPacket && alarmEnabled;++i){ //TODO avoid discarding reads after valid packet.
             state_machine(buf[i],&state);
             if(state.state==SMEND){
-                if(state.adr==ADR_TX && state.ctrl == CTRL_RR(data_s_flag?0:1)){ //Receiver Ready for next.
+                if(state.adr==ADR_TX && (state.ctrl == CTRL_RR(0) || state.ctrl == CTRL_RR(1))){ //Receiver Ready for next.
                     receivedPacket = 1;
+                    if(state.ctrl == CTRL_RR(data_s_flag))//Requesting next packet.
+                        printf("Requesting next packet.\n");
+                    resend = 0;
                 }
-                if(state.adr==ADR_TX && (state.ctrl == CTRL_RR(data_s_flag) || state.ctrl == CTRL_REJ(data_s_flag) ) ){//Requesting retransmission.
-                    resend=1;
+                if(state.adr==ADR_TX && state.ctrl == CTRL_REJ(data_s_flag) ){//Requesting retransmission.
+                    printf("Requesting retransmission.\n");
                 }
             }
             //TODO maybe handle other commands?
@@ -451,6 +456,8 @@ int llread(unsigned char *packet)
             }
             if(state.ctrl==CTRL_DISC) {
                 receivedDISC = 1;
+                int frame_size=buildCommandFrame(buf,ADR_TX,(state.ctrl==CTRL_DATA(0)?CTRL_REJ(0):CTRL_REJ(1)));
+                write(fd,buf,frame_size); //sends REJ reply.
                 printf("llread: Received DISC.\n");
                 return -1; //TODO maybe dont throw error, by catching this in application layer?
                 break;
@@ -493,6 +500,9 @@ int llclose(int showStatistics)
                     state_machine(buf[i],&state);
                     if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_DISC)
                         receivedDISC_tx=1;
+                    if(state.state==SMEND && state.adr==ADR_TX && (state.ctrl == CTRL_RR(0) || state.ctrl == CTRL_RR(1) || state.ctrl == CTRL_REJ(0) || state.ctrl == CTRL_REJ(1))){
+                        tries=0; //reset tries as receiver was still in llread.
+                    }
                 }
             }
         }
@@ -501,6 +511,7 @@ int llclose(int showStatistics)
         //sleep(9);
         write(fd,buf,frame_size); //sends UA reply.
         printf("llclose: Sent UA.\n");
+        sleep(1);
 
     } else { //Receiver
 
