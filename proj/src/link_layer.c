@@ -408,7 +408,7 @@ int llread(unsigned char *packet)
 {
     if(bigBufsize < PACKET_SIZE_LIMIT){
         if(bigBufsize==0)
-            bigBuf=malloc(bigBufsize*2+10);
+            bigBuf=malloc(PACKET_SIZE_LIMIT);
         else
             bigBuf=realloc(bigBuf,PACKET_SIZE_LIMIT);
     }
