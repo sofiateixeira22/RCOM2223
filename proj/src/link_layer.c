@@ -30,9 +30,10 @@ int receivedDISC = 0;
 #define CTRL_RR(R) ((R)%2?0b10000101:0b00000101)
 #define CTRL_REJ(R) ((R)%2?0b10000001:0b00000001)
 #define CTRL_DATA(S) ((S)%2?0b01000000:0b00000000)
-#define PACKET_SIZE_LIMIT (256)
+#define PACKET_SIZE_LIMIT (128)
 unsigned char alarmEnabled=0, tries=0;
-unsigned char buf[512];
+unsigned char buf[128], *bigBuf =NULL;
+unsigned long bigBufsize=0;
 unsigned char data_s_flag = 0;
 
 typedef struct {
@@ -315,7 +316,6 @@ int llopen(LinkLayer connectionParameters)
     }
     else{ // Receiver
         tries=0;
-        
         state.state=SMSTART;
         int receivedSET=0;
         while(!receivedSET){
@@ -343,7 +343,12 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buffer, int bufferSize)
 {
-    unsigned char bigBuf[bufferSize*2+100]; //TODO optimize by not copying to a new buffer.
+    if(bigBufsize < bufferSize*2+10){
+        if(bigBufsize==0)
+            bigBuf=malloc(bufferSize*2+10);
+        else
+            bigBuf=realloc(bigBuf,bufferSize*2+10);
+    }
     int frame_size=buildDataFrame(bigBuf,buffer,bufferSize,ADR_TX,CTRL_DATA(data_s_flag));
     for(unsigned int sent=0;sent<frame_size;){ //In case write doesnt write all bytes from the first call.
         int ret=write(fd,bigBuf+sent,frame_size-sent);
@@ -401,14 +406,20 @@ int llwrite(const unsigned char *buffer, int bufferSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
+    if(bigBufsize < PACKET_SIZE_LIMIT){
+        if(bigBufsize==0)
+            bigBuf=malloc(bigBufsize*2+10);
+        else
+            bigBuf=realloc(bigBuf,PACKET_SIZE_LIMIT);
+    }
     int receivedPacket=0;
     state.data=packet; //State machine writes to packet buffer directly.
     while(!receivedPacket){
-        int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
+        int bytes_read = read(fd,bigBuf,PACKET_SIZE_LIMIT);
         if(bytes_read<0)
             return -1;
         for(unsigned int i=0;i<bytes_read && !receivedPacket;++i){
-            state_machine(buf[i],&state);
+            state_machine(bigBuf[i],&state);
             //Debugging
             /*if(state.state>=SMBCC1){
                 printf("(state:%i,packet:%i,data_size:%i,last_data:%i,bcc:%i)\n",state.state, buf[i], state.data_size,state.data[state.data_size>0?state.data_size-1:0],state.bcc);
@@ -458,7 +469,9 @@ int llclose(int showStatistics)
     //trasmistor - sends DISC, receives UA
     //receiver - receives DISC in llread? , sends UA
     signal(SIGALRM,alarmHandler);
-
+    if(bigBufsize>0)
+        free(bigBuf);
+    
     if(connection.role==LlTx) { //Transmitter
 
         int receivedDISC_tx=0;
