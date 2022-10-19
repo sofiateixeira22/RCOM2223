@@ -70,10 +70,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         unsigned char failure=0;
         unsigned long bytes_sent =0;
         for(unsigned char i=0;bytes_sent<file_size;++i){
-            unsigned long file_bytes = fread(appbuf+4, 1, (file_size-bytes_sent<PACKET_SIZE-1000? file_size-bytes_sent : PACKET_SIZE-1000), file);
+            unsigned long file_bytes = fread(appbuf+4, 1, (file_size-bytes_sent<PACKET_SIZE? file_size-bytes_sent : PACKET_SIZE), file);
             
-            if(file_bytes!=(file_size-bytes_sent<PACKET_SIZE-1000? file_size-bytes_sent:PACKET_SIZE-1000)){
-                printf("File read failure. file_bytes:%lu\n",file_bytes);
+            if(file_bytes!=(file_size-bytes_sent<PACKET_SIZE? file_size-bytes_sent:PACKET_SIZE)){
+                printf("File read failure. file_bytes:%lu, file_size:%lu, bytes_sent:%lu\n",file_bytes,file_size,bytes_sent);
                 failure=1;
                 break;
             }
@@ -87,6 +87,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
                 break;
             }
             printf("applicationLayer: sent packet %i.\n",i);
+            bytes_sent+=file_bytes;
         }
         if(!failure){
             appbuf[0]=CONTROL_END;

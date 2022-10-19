@@ -49,7 +49,8 @@ State state;
 int stuff(const unsigned char *buffer, int bufSize, unsigned char* dest, unsigned char *bcc){
     int size=0;
     for(unsigned int i=0; i<bufSize ; ++i){
-        *bcc^=buffer[i];
+        if(bcc!=NULL)
+            *bcc^=buffer[i];
         if(buffer[i]==FLAG){
             dest[size++]=ESCAPE;
             dest[size++]=ESCAPE_FLAG;
@@ -83,9 +84,9 @@ int buildDataFrame(unsigned char* framebuf, const unsigned char* data,unsigned i
     for(unsigned int i=0;i<data_size;++i){
         offset+=stuff(data+i,1,framebuf+offset+4,&bcc);
     }
-    framebuf[4+offset]=bcc;
-    framebuf[5+offset]=FLAG;
-    return 6+offset;
+    offset+=stuff(&bcc,1,framebuf+offset+4,NULL);
+    framebuf[4+offset]=FLAG;
+    return 5+offset;
 }
 
 
@@ -172,7 +173,7 @@ void state_machine(unsigned char byte,State* state){
                 state->state=SMESC;
                 break;       
             }
-            if(byte==FLAG){printf("185, %i ",state->data_size);
+            if(byte==FLAG){
                 state->state=SMREJ;
                 break;
             }
@@ -184,7 +185,7 @@ void state_machine(unsigned char byte,State* state){
             state->bcc^=byte;
             break;
         case SMESC:
-            if(byte==FLAG){printf("193");
+            if(byte==FLAG){
                 state->state=SMREJ;
                 break;
             }
@@ -218,6 +219,12 @@ void state_machine(unsigned char byte,State* state){
             if(byte==0){
                 state->data[state->data_size++]=state->bcc;
                 state->bcc=0;
+                break;
+            }
+            if(byte==ESCAPE){
+                state->data[state->data_size++]=state->bcc;    
+                state->bcc=0;
+                state->state=SMESC;
                 break;
             }
             state->data[state->data_size++]=state->bcc;
@@ -374,17 +381,17 @@ int llwrite(const unsigned char *buffer, int bufferSize)
             return -1;
         for(unsigned int i=0;i<bytes_read && !receivedPacket;++i){ //TODO avoid discarding reads after valid packet.
             state_machine(buf[i],&state);
-            if(state.state==SMEND){printf("377. adr:%x, ctrl:%x\n",state.adr,state.ctrl);
+            if(state.state==SMEND){
                 if(state.adr==ADR_TX && state.ctrl == CTRL_RR(data_s_flag?0:1)){ //Receiver Ready for next.
-                    receivedPacket = 1;printf("379\n");
+                    receivedPacket = 1;
                 }
                 if(state.adr==ADR_TX && (state.ctrl == CTRL_RR(data_s_flag) || state.ctrl == CTRL_REJ(data_s_flag) ) ){//Requesting retransmission.
-                    resend=1;printf("383");
+                    resend=1;
                 }
             }
             //TODO maybe handle other commands?
         }
-    }printf("387\n");
+    }
     data_s_flag= data_s_flag?0:1;
     return 0;
 }
@@ -498,7 +505,7 @@ int llclose(int showStatistics)
                     receivedDISC=1;
             }
         }
-        if(receivedDISC) printf("llclose: Received DISC .\n");
+        if(receivedDISC) printf("llclose: Received DISC.\n");
         int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_DISC);
         //sleep(9);
         write(fd,buf,frame_size); //sends DISC reply.
@@ -515,7 +522,7 @@ int llclose(int showStatistics)
                     receivedUA=1;
             }
         }
-        if(receivedUA) printf("llclose: Received UA .\n");
+        if(receivedUA) printf("llclose: Received UA.\n");
     }
 
     // Restore the old port settings
