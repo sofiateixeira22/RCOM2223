@@ -242,6 +242,7 @@ int llwrite(const unsigned char *buffer, int bufferSize)
                 }
                 if(state.adr==ADR_TX && state.ctrl == CTRL_REJ(data_s_flag) ){//Requesting retransmission.
                     printf("Requesting retransmission.\n");
+		    retransmissions=0;
                 }
             }
             //TODO maybe handle other commands?
