@@ -166,6 +166,11 @@ int llopen(LinkLayer connectionParameters)
                 state_machine(buf[i],&state);
                 if(state.state==SMEND && state.adr==ADR_TX && state.ctrl == CTRL_SET)
                     receivedSET=1;
+                if(state.state==SMEND && state.adr==ADR_TX && state.ctrl==CTRL_DISC) {
+						receivedDISC = 1;
+						printf("-> Received DISC.\n");
+						return -1;
+				}
             }
         }
         if(receivedSET) printf("-> Received Set.\n");
