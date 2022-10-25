@@ -148,7 +148,10 @@ int llopen(LinkLayer connectionParameters)
                 }
             }
         }
-        if(receivedUA) printf("-> Received UA.\n");
+        if(receivedUA)
+            printf("-> Received UA.\n");
+        else
+            return -1;
         return 1;
     }
     else{ // Receiver
@@ -334,11 +337,13 @@ int llclose(int showStatistics)
                 }
             }
         }
-        if(receivedDISC_tx) printf("-> Received DISC.\n");
-        int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_UA);
-        write(fd,buf,frame_size); //sends UA reply.
-        printf("-> Sent UA.\n");
-        sleep(1);
+        if(receivedDISC_tx){ 
+            printf("-> Received DISC.\n");
+            int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_UA);
+            write(fd,buf,frame_size); //sends UA reply.
+            printf("-> Sent UA.\n");
+            sleep(1);
+        }
 
     } else { //Receiver
 
