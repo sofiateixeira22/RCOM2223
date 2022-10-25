@@ -63,10 +63,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         printf("\nExecuting llwrite:\n\n");
 
         *((long*)(appbuf+3))=file_size;
-        llwrite(appbuf,10);
         unsigned char failure=0;
+        if(-1==llwrite(appbuf,10)){
+            printf("ERROR: llwrite failure.\n");
+            failure=1;
+        }
         unsigned long bytes_sent =0;
-        for(unsigned char i=0;bytes_sent<file_size;++i){
+        for(unsigned char i=0;bytes_sent<file_size && 0==failure;++i){
             unsigned long file_bytes = fread(appbuf+4, 1, (file_size-bytes_sent<PACKET_SIZE? file_size-bytes_sent : PACKET_SIZE), file);
             
             if(file_bytes!=(file_size-bytes_sent<PACKET_SIZE? file_size-bytes_sent:PACKET_SIZE)){
