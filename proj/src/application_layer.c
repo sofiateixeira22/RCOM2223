@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 #include "application_layer.h"
 #include "link_layer.h"
 #include "macros.h"
@@ -18,6 +19,8 @@ int read_next_TLV(unsigned char *addr, unsigned char* t, unsigned char* l, unsig
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate, int nTries, int timeout, const char *filename)
 {
+    clock_t begin = clock();
+
     LinkLayer ll;
     strcpy(ll.serialPort,serialPort);
     
@@ -110,7 +113,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
                 offset+=read_next_TLV(appbuf+offset,&t,&l,&v);
                 if(t==TYPE_FILESIZE){
                     filesize=*((unsigned long*)v);
-                    printf("File Size:%li",filesize);
+                    printf("File Size:%li\n",filesize);
                 }
             }
             FILE* file = fopen(filename, "w");
@@ -173,6 +176,9 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
     }
 
     printf("\nExecuting llclose:\n\n");
-    llclose(0);
+    llclose(1);
     sleep(1);
+    clock_t end = clock();
+    double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
+    printf("Time: %f\n", time_spent);
 }
