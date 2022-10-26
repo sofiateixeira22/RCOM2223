@@ -27,8 +27,6 @@ unsigned char data_s_flag = 0;
 int nTimeouts = 0;
 int nRetransmissions = 0;
 float effiency = 0;
-int nPacketsSent = -3;
-int nPacketsReceived = -3;
 
 int stuff(const unsigned char *buffer, int bufSize, unsigned char* dest, unsigned char *bcc){
     int size=0;
@@ -215,7 +213,6 @@ int llwrite(const unsigned char *buffer, int bufferSize)
     alarmEnabled=1;
     alarm(connection.timeout);
     while(!receivedPacket){
-        nPacketsSent++;
         if(!alarmEnabled){
             resend=1;
             alarmEnabled=1;
@@ -239,7 +236,6 @@ int llwrite(const unsigned char *buffer, int bufferSize)
             }
             resend = 0;
             retransmissions++;
-            nRetransmissions++;
         }
         int bytes_read = read(fd,buf,PACKET_SIZE_LIMIT);
         if(bytes_read<0)
@@ -249,7 +245,6 @@ int llwrite(const unsigned char *buffer, int bufferSize)
             if(state.state==SMEND){
                 if(state.adr==ADR_TX && (state.ctrl == CTRL_RR(0) || state.ctrl == CTRL_RR(1))){ //Receiver Ready for next.
                     receivedPacket = 1;
-                    printf("here\n");
                     if(state.ctrl == CTRL_RR(data_s_flag))//Requesting next packet.
                         printf("Requesting next packet.\n");
                     resend = 0;
@@ -301,14 +296,12 @@ int llread(unsigned char *packet)
                     int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_RR(data_s_flag));
                     write(fd,buf,frame_size);
                     printf("-> Sent RR %i.\n",data_s_flag);
-                    nPacketsReceived++;
                     return state.data_size;
                 }
                 else{
                     int frame_size=buildCommandFrame(buf,ADR_TX,CTRL_RR(data_s_flag));
                     write(fd,buf,frame_size);
                     printf("-> Sent RR %i requesting retransmission.\n",data_s_flag);
-                    nRetransmissions++;
                 }
             }
             if(state.ctrl==CTRL_DISC) {
@@ -411,13 +404,6 @@ int llclose(int showStatistics)
         printf("\nStatistics:\n\n");
         printf("- Number of Timeouts: %d\n", nTimeouts);
         printf("- Number of Retransmissions: %d\n", nRetransmissions);
-        if(nPacketsReceived < 0 || nPacketsSent < 0) {
-            printf("- Number of packets sent: %d\n", nPacketsSent+3);
-            printf("- Number of packets received: %d\n", nPacketsReceived+3);
-        } else {
-            printf("- Number of packets sent: %d\n", nPacketsSent);
-            printf("- Number of packets received: %d\n", nPacketsReceived);
-        }
 
     }
 
