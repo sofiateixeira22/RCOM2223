@@ -400,7 +400,7 @@ int llclose(int showStatistics)
         exit(-1);
     }
 
-    if(showStatistics) {
+    if(showStatistics && connection.role==LlTx) {
         printf("\nStatistics:\n\n");
         printf("- Number of Timeouts: %d\n", nTimeouts);
         printf("- Number of Retransmissions: %d\n", nRetransmissions);
