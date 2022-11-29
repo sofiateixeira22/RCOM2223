@@ -6,9 +6,7 @@
 - [x] llclose
 - [x] llwrite
 - [x] llread
-- [x] Link Layer - if BCC is flag
-- [x] Link Layer - byte stuffing
-- [ ] Application Layer
+- [x] Application Layer
 
 ## Group members
 
