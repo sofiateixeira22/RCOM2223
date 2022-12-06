@@ -79,6 +79,7 @@ int main(int argc, char **argv) {
         exit(-1);
     }
     /*send a string to the server*/
+    usleep(100000);
     int bytes_read=read(sockfd,buf,512);
     buf[bytes_read]='\0';
     printf("%s\n",buf);
@@ -143,14 +144,19 @@ int main(int argc, char **argv) {
     }
     bytes_read=read(sockfd,buf,512);
     buf[bytes_read]='\0';
-    printf("%s\n--FILE START--\n",buf);
-    while((bytes_read=read(sockfd2,buf,512))>0){
-        buf[bytes_read]='\0';
-        printf("%s",buf);
-        if(bytes_read<512)
-            break;
+    printf("%s\nReceiving File....\n",buf);
+    FILE *f = fopen("file","w");
+    if(f == NULL)
+    {
+        /* File not created hence exit */
+        printf("Unable to create file locally.\n");
+        exit(EXIT_FAILURE);
     }
-    printf("-- FILE END --\n");
+    while((bytes_read=read(sockfd2,buf,512))>0){
+        fwrite(buf,1,bytes_read,f);
+        //printf("%s",buf);
+    }
+    printf("File Received!\n");
 
 
 
