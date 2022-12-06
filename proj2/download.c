@@ -74,6 +74,7 @@ int main(int argc, char **argv) {
     if (connect(sockfd,
                 (struct sockaddr *) &server_addr,
                 sizeof(server_addr)) < 0) {
+                    printf("%s\n",h->h_addr_list[0]);
         perror("connect()");
         exit(-1);
     }
@@ -124,14 +125,14 @@ int main(int argc, char **argv) {
     if ((sockfd2 = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket()");
         exit(-1);
-    }printf("106\n");
+    }//printf("106\n");
     /*connect to the server*/
     if (connect(sockfd2,
                 (struct sockaddr *) &server_addr2,
                 sizeof(server_addr2)) < 0) {
         perror("connect()");
         exit(-1);
-    }printf("113 %s\n",urlpath);
+    }//printf("113 %s\n",urlpath);
     sprintf(buf2,"retr %s\r\n",urlpath);
     bytes=write(sockfd,buf2,strlen(buf2));
     if (bytes > 0)
@@ -142,12 +143,14 @@ int main(int argc, char **argv) {
     }
     bytes_read=read(sockfd,buf,512);
     buf[bytes_read]='\0';
-    printf("%s",buf);
+    printf("%s\n--FILE START--\n",buf);
     while((bytes_read=read(sockfd2,buf,512))>0){
+        buf[bytes_read]='\0';
         printf("%s",buf);
         if(bytes_read<512)
             break;
     }
+    printf("-- FILE END --\n");
 
 
 
