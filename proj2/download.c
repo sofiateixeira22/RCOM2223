@@ -83,6 +83,10 @@ int main(int argc, char **argv) {
     int bytes_read=read(sockfd,buf,512);
     buf[bytes_read]='\0';
     printf("%s\n",buf);
+    if(0 != strncmp(buf,"220",3)){
+        printf("Error: Unexpected reply from connection.\n");
+        exit(-1);
+    }
 
     sprintf(buf2,"user %s\r\n",user);
     bytes = write(sockfd, buf2, strlen(buf2));
@@ -95,19 +99,30 @@ int main(int argc, char **argv) {
     bytes_read=read(sockfd,buf,512);
     buf[bytes_read]='\0';
     printf("%s\n",buf);
+    if(0 != strncmp(buf,"331 Please specify the password.",32)){
+        printf("Error: Unexpected reply from connection.\n");
+        exit(-1);
+    }
 
     sprintf(buf2,"pass %s\r\n",password);
     write(sockfd,buf2,strlen(buf2));
     bytes_read=read(sockfd,buf,512);
     buf[bytes_read]='\0';
     printf("%s",buf);
+    if(0 != strncmp(buf,"230",3)){
+        printf("Error: Login failed.\n");
+        exit(-1);
+    }
 
     sprintf(buf2,"pasv\r\n");
     write(sockfd,buf2,strlen(buf2));
     bytes_read=read(sockfd,buf,512);
     buf[bytes_read]='\0';
     printf("%s",buf);
-    
+    if(0 != strncmp(buf,"227",3)){
+        printf("Error: Unexpected reply from connection.\n");
+        exit(-1);
+    }
     int h1=0,h2=0,h3=0,h4=0,p1=0,p2=0,pasvport;
     sscanf(buf,"227 Entering Passive Mode (%i,%i,%i,%i,%i,%i).",&h1,&h2,&h3,&h4,&p1,&p2);
     pasvport= p1*256+p2;
@@ -144,6 +159,18 @@ int main(int argc, char **argv) {
     }
     bytes_read=read(sockfd,buf,512);
     buf[bytes_read]='\0';
+    if(0 != strncmp(buf,"150",3)){
+        printf("%sClosing\n",buf);    
+        if (close(sockfd)<0) {
+            perror("close()");
+            exit(-1);
+        }
+        if (close(sockfd2)<0) {
+            perror("close()");
+            exit(-1);
+        }
+        return -1;
+    }
     printf("%s\nReceiving File....\n",buf);
     FILE *f = fopen("file","w");
     if(f == NULL)
@@ -157,8 +184,6 @@ int main(int argc, char **argv) {
         //printf("%s",buf);
     }
     printf("File Received!\n");
-
-
 
     if (close(sockfd)<0) {
         perror("close()");
